@@ -1,0 +1,36 @@
+# ---- generated data / outputs ----
+/gaussian_save/
+/output/
+/local_scene_viewer/
+
+# ---- common local datasets ----
+/data/
+/data
+/dataset/
+/datasets/
+
+# ---- Python caches ----
+**/__pycache__/
+*.py[cod]
+
+# ---- zip files ----
+*.zip
+
+/figure/
+/exp_eval/
+
+5_*.sh
+6_*.sh
+eval_*.sh
+
+# ---- compiled CUDA extension artifacts (rebuilt by pip install) ----
+submodules/**/build/
+**/*.egg-info/
+*.so
+*.o
+
+# ---- preprocess: upstream SAM2/SAM3 checkouts and model weights ----
+preprocess/sam2/sam2/
+preprocess/sam3/sam3/
+preprocess/*/weights/
+/logs/
