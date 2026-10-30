@@ -121,7 +121,7 @@ Without an OpenRouter key, export `PIPELINE_VARIANT=sam3` before steps 2 and 3 (
 Unified-Lift baseline (reuses the same 15k checkpoint):
 
 ```bash
-UNIFIED_LIFT=1 bash 3_train_15k_30k.sh   # → unified_lift_30k
+DATASET_CONFIG=unified_lift+ours_scannetpp bash 3_train_15k_30k.sh   # → unified_lift_30k
 ```
 
 ### VLSplat (point-level)

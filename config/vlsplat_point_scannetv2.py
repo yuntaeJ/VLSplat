@@ -25,8 +25,7 @@ DATASET = {
     "final_iters": 30000,
     "base_run": "base_15k_fixed",
     "refine_run": "vlsplat_30k_fixed",
-    "unified_lift_run": "unified_lift_30k",
-    "unified_lift": False,             # True trains the Unified-Lift baseline instead (see unified_lift+ours_scannetpp.py)
+    "unified_lift": False,             # True = step 3 trains the Unified-Lift baseline (see unified_lift+ours_scannetpp.py)
     "graph_resolution": 4,
 }
 

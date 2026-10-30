@@ -25,8 +25,7 @@ DATASET = {
     "final_iters": 30000,
     "base_run": "base_15k",            # step 1 output  -> <output_dir>/<scene>/<base_run>
     "refine_run": "vlsplat_30k",       # step 3 output  (+ _<PIPELINE_VARIANT> when set)
-    "unified_lift_run": "unified_lift_30k",   # baseline output when UNIFIED_LIFT=1
-    "unified_lift": False,             # True trains the Unified-Lift baseline instead (see unified_lift+ours_scannetpp.py)
+    "unified_lift": False,             # True = step 3 trains the Unified-Lift baseline (see unified_lift+ours_scannetpp.py)
     "graph_resolution": 4,             # image downscale used by step 2 when reading masks / views
 }
 
