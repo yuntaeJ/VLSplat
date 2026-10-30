@@ -146,7 +146,8 @@ SCENE=scene0590_00 bash test_vlsplat_3d_point.sh       # point-level
 
 Built on [3D Gaussian Splatting](https://github.com/graphdeco-inria/gaussian-splatting) and
 [Unified-Lift](https://github.com/Runsong123/Unified-Lift), with masks from
-[SAM2](https://github.com/facebookresearch/sam2) / SAM3 and language features from
+[SAM2](https://github.com/facebookresearch/sam2) /
+[SAM3](https://github.com/facebookresearch/sam3) and language features from
 [OpenCLIP](https://github.com/mlfoundations/open_clip). Please follow the original 3D Gaussian
 Splatting license terms, which restrict use to non-commercial research.
 
