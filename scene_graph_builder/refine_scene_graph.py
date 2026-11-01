@@ -115,40 +115,6 @@ def compute_group_per_point(gaussians, code_book: torch.Tensor) -> Tuple[torch.T
     return pred_id, pred_id
 
 
-def _cosine_to_mean(obj: torch.Tensor) -> torch.Tensor:
-    """obj: (G, D) -> (G,) cosine to mean direction (clip_refine centroid convention)."""
-    if obj.shape[0] == 0:
-        return obj.new_zeros(0)
-    if obj.shape[0] == 1:
-        return obj.new_ones(1)
-    c = obj.mean(dim=0)
-    nc = c.norm() + 1e-12
-    fn = obj / (obj.norm(dim=-1, keepdim=True) + 1e-12)
-    return (fn * (c / nc).unsqueeze(0)).sum(dim=-1)
-
-
-def feature_similarity_split(
-    gaussians, idx_group: torch.Tensor, thr: float
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Global indices IN (>=thr) and ADD (<thr) within idx_group."""
-    idx_group = idx_group.reshape(-1).long()
-    if idx_group.numel() == 0:
-        return idx_group, idx_group
-    # Robustly flatten per-gaussian feature to (G, D), regardless of trailing dims.
-    obj = gaussians._objects_dc[idx_group].detach()
-    obj = obj.reshape(obj.shape[0], -1)
-    sim = _cosine_to_mean(obj).reshape(-1)
-    m_in = (sim >= float(thr)).reshape(-1)
-    if m_in.numel() != idx_group.numel():
-        # Safety fallback for unexpected shape mismatch.
-        n = min(int(m_in.numel()), int(idx_group.numel()))
-        idx_group = idx_group[:n]
-        m_in = m_in[:n]
-    idx_in = idx_group[m_in]
-    idx_add = idx_group[~m_in]
-    return idx_in, idx_add
-
-
 def _filter_indices_by_bbox(
     xyz: torch.Tensor,
     idx: torch.Tensor,
@@ -185,27 +151,23 @@ def _bbox_expanded_from_tight(node: Dict[str, Any], margin_fraction: float) -> O
 def codebook_similarity_split(
     gaussians,
     code_book: torch.Tensor,
+    gpp: torch.Tensor,
     idx_group: torch.Tensor,
-    group_id: int,
     thr: float,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Split indices by cosine similarity to group-matched codebook row.
+    Split indices by cosine similarity to the codebook row of each Gaussian's own group.
     IN: sim >= thr, ADD: sim < thr.
     """
     idx_group = idx_group.reshape(-1).long()
     if idx_group.numel() == 0:
         return idx_group, idx_group
 
-    gid = int(group_id)
-    if gid < 0 or gid >= int(code_book.shape[0]):
-        return feature_similarity_split(gaussians, idx_group, thr)
-
     obj = gaussians._objects_dc[idx_group].detach().reshape(idx_group.shape[0], -1)
     obj = obj / (obj.norm(dim=-1, keepdim=True) + 1e-12)
-    c = code_book[gid].detach().reshape(-1)
-    c = c / (c.norm() + 1e-12)
-    sim = (obj * c.unsqueeze(0)).sum(dim=-1)
+    rows = code_book.detach().reshape(int(code_book.shape[0]), -1)[gpp[idx_group].long()]
+    rows = rows / (rows.norm(dim=-1, keepdim=True) + 1e-12)
+    sim = (obj * rows).sum(dim=-1)
     m_in = sim >= float(thr)
     return idx_group[m_in], idx_group[~m_in]
 
@@ -474,11 +436,12 @@ def _run_clip_gate_and_refine(
         gs_add._objects_dc.data.copy_(gs_add_world._objects_dc.data)
 
 
-def _node_group_id(node: dict) -> int:
+def _node_prototype_group(node: dict, gpp: torch.Tensor) -> int:
+    """Codebook group whose row is the node's prototype for ADD attract / repel: the group with the most Gaussians."""
     gids = node_group_ids(node)
     if not gids:
-        raise ValueError(f"node.group_id / group_ids missing/non-numeric: {node}")
-    return int(gids[0])
+        raise ValueError(f"node.group_id missing/non-numeric: {node}")
+    return int(max(gids, key=lambda g: int((gpp == int(g)).sum().item())))
 
 
 def _roi_tight_box(gaussians, idx: torch.Tensor, cfg: Dict[str, Any]) -> Optional[Dict[str, float]]:
@@ -659,7 +622,9 @@ def _refine_nodes(
 ) -> int:
     """One refinement phase over every target node. Returns the number of nodes that were refined.
 
-    intra: IN = the node's Gaussians inside bbox_tight with codebook cosine >= tau_f; ADD = the same-group rest.
+    A node is refined as a whole: its Gaussians are those of all its groups, each compared with its own group's
+    codebook row, and ADD features move toward the row of the node's prototype group (the largest one).
+    intra: IN = the node's Gaussians inside bbox_tight with codebook cosine >= tau_f; ADD = the node's rest.
     inter: IN as above; ADD = Gaussians of other (node-less) groups inside bbox_tight expanded by the margin."""
     thr = float(cfg["feat_sim_threshold"])
     device = gaussians._xyz.device
@@ -667,18 +632,19 @@ def _refine_nodes(
     n_ok = 0
     pbar = _node_refine_pbar(target_nodes, f"{phase}-refine", iteration)
     for node in pbar:
-        gid = _node_group_id(node)
+        gids = node_group_ids(node)
+        gid = _node_prototype_group(node, gpp)
         name = (node.get("class_name") or "").strip() or f"node_{int(node.get('id', -1))}"
-        pbar.set_postfix_str(f"{name} g={gid}", refresh=False)
+        pbar.set_postfix_str(f"{name} g={gids}", refresh=False)
         prompt = _node_prompt(node)
         if not prompt:
             continue
-        idx_group = torch.nonzero(gpp == int(gid), as_tuple=False).reshape(-1).long()
+        idx_group = torch.nonzero(torch.isin(gpp, torch.as_tensor(gids, device=gpp.device)), as_tuple=False).reshape(-1).long()
         if phase == "intra" and idx_group.numel() == 0:
             continue
         bbox_tight = _bbox_tight(node)
         idx_in, idx_add = codebook_similarity_split(
-            gaussians, code_book, _filter_indices_by_bbox(gaussians.get_xyz.detach(), idx_group, bbox_tight), gid, thr
+            gaussians, code_book, gpp, _filter_indices_by_bbox(gaussians.get_xyz.detach(), idx_group, bbox_tight), thr
         )
         if phase == "inter":
             bbox_add = _bbox_expanded_from_tight(node, expand_margin)
